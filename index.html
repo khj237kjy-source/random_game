@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>기어박스 설계소</title>
+<style>
+  :root {
+    --bg: #1b1f24;
+    --panel: #252b33;
+    --line: #3a434f;
+    --text: #e6e9ee;
+    --muted: #9aa4b1;
+    --accent: #f2a541;
+    --ok: #5cc27a;
+    --bad: #e5605a;
+    --blue: #5aa0e5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    background-image:
+      linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+    background-size: 24px 24px;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 24px; letter-spacing: .5px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 14px; }
+  .spec {
+    margin-top: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  }
+  .card .k { color: var(--muted); font-size: 12px; }
+  .card .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .target .v { color: var(--accent); }
+  canvas {
+    display: block; width: 100%; height: auto; margin-top: 14px;
+    background: #14181d; border: 1px solid var(--line); border-radius: 8px;
+    touch-action: manipulation; cursor: pointer;
+  }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 2px 0; }
+  .controls { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .gctl {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .gctl .name { font-size: 12px; color: var(--muted); min-width: 52px; }
+  .gctl .t { min-width: 40px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+  button {
+    font: inherit; color: var(--text); background: #323a45; border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { background: #3c4653; }
+  .gctl button { padding: 2px 9px; }
+  .actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .primary { background: var(--accent); color: #1b1f24; border-color: var(--accent); font-weight: 700; }
+  .primary:hover { background: #ffb85c; }
+  .toggle.on { background: var(--blue); border-color: var(--blue); color: #10151b; font-weight: 700; }
+  #msg { margin-left: 4px; font-weight: 600; }
+  #msg.ok { color: var(--ok); }
+  #msg.bad { color: var(--bad); }
+  .footer { margin-top: 22px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  @media (max-width: 640px) {
+    .spec { grid-template-columns: repeat(2, 1fr); }
+    h1 { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>⚙️ 기어박스 <span>설계소</span></h1>
+    <div class="sub" id="levelLabel">LEVEL 1</div>
+  </header>
+
+  <div class="spec">
+    <div class="card"><div class="k">입력 (모터)</div><div class="v" id="inVal">-</div></div>
+    <div class="card target"><div class="k">목표 출력</div><div class="v" id="tgtVal">-</div></div>
+    <div class="card"><div class="k">현재 출력</div><div class="v" id="outVal">-</div></div>
+    <div class="card"><div class="k">출력 토크 (η=98%/맞물림)</div><div class="v" id="trqVal">-</div></div>
+  </div>
+
+  <canvas id="cv" width="940" height="380"></canvas>
+  <p class="hint">기어를 클릭하면 잇수 증가, 우클릭(또는 Shift+클릭)하면 감소. 2단 기어는 안쪽 원을 누르면 작은 기어, 바깥쪽을 누르면 큰 기어가 바뀝니다.</p>
+
+  <div class="controls" id="controls"></div>
+
+  <div class="actions">
+    <button class="primary" id="checkBtn">설계 검증</button>
+    <button class="toggle" id="idlerBtn">아이들러 기어</button>
+    <button id="resetBtn">초기화</button>
+    <span id="msg"></span>
+  </div>
+
+  <div class="footer">
+    속도비: ω<sub>out</sub> = ω<sub>in</sub> × Π(구동 잇수 / 피동 잇수) · 맞물림 한 번마다 회전 방향이 반대로 바뀝니다.<br>
+    아이들러 기어는 속도비는 그대로 두고 방향만 뒤집습니다. 토크는 속도를 줄인 만큼 커집니다 (P = Tω).
+  </div>
+</div>
+
+<script>
+(() => {
+  const TEETH = [12, 15, 16, 20, 24, 30, 36, 40, 48, 60];
+  const IDLER_T = 18;
+  const IN_TORQUE = 10; // N·m
+  const EFF = 0.98;
+  const TOL = 0.005;
+
+  // sol: [A, B1, C1, ..., D]  (A = 모터 기어, Bk/Ck = k번째 2단 축의 피동/구동, D = 출력)
+  const LEVELS = [
+    { rpm: 60, sol: [20, 40], idler: false, idlerAvail: false },
+    { rpm: 60, sol: [48, 16], idler: false, idlerAvail: false },
+    { rpm: 60, sol: [30, 20], idler: true,  idlerAvail: true },
+    { rpm: 60, sol: [60, 15, 40, 16], idler: false, idlerAvail: false },
+    { rpm: 60, sol: [12, 48, 15, 60], idler: true, idlerAvail: true },
+    { rpm: 60, sol: [40, 16, 36, 24, 20, 30], idler: false, idlerAvail: true },
+    { rpm: 90, sol: [15, 45, 16, 48, 12, 36], idler: true, idlerAvail: true },
+    { rpm: 60, sol: [60, 12, 48, 16, 36, 24, 20, 40], idler: false, idlerAvail: true },
+  ];
+
+  const $ = id => document.getElementById(id);
+  const cv = $('cv'), ctx = cv.getContext('2d');
+
+  let levelIdx = 0, level, teeth, useIdler, solved, motorAngle = 0;
+
+  function randomLevel() {
+    const stages = 1 + Math.floor(Math.random() * 3);
+    const pick = () => TEETH[Math.floor(Math.random() * TEETH.length)];
+    let sol;
+    do {
+      sol = Array.from({ length: 2 + stages * 2 }, pick);
+    } while (Math.abs(ratioOf(sol) - 1) < 0.01);
+    return { rpm: [30, 60, 90, 120][Math.floor(Math.random() * 4)], sol, idler: Math.random() < .5, idlerAvail: true };
+  }
+
+  function ratioOf(t) {
+    let r = 1;
+    for (let i = 0; i < t.length; i += 2) r *= t[i] / t[i + 1];
+    return r;
+  }
+  function meshes(t, idler) { return t.length / 2 + (idler ? 1 : 0); }
+  function outRpm(t, idler, rpm) {
+    const sign = meshes(t, idler) % 2 ? -1 : 1;
+    return rpm * ratioOf(t) * sign;
+  }
+  function outTorque(t, idler) {
+    return IN_TORQUE / ratioOf(t) * Math.pow(EFF, meshes(t, idler));
+  }
+
+  function loadLevel(i) {
+    levelIdx = i;
+    level = i < LEVELS.length ? LEVELS[i] : randomLevel();
+    teeth = level.sol.map(() => 24);
+    useIdler = false;
+    solved = false;
+    $('checkBtn').textContent = '설계 검증';
+    $('levelLabel').textContent = i < LEVELS.length
+      ? `LEVEL ${i + 1} / ${LEVELS.length}`
+      : `무한 모드 #${i - LEVELS.length + 1}`;
+    $('idlerBtn').style.display = level.idlerAvail ? '' : 'none';
+    setMsg('');
+    buildControls();
+    update();
+  }
+
+  // ---- 기어 이름 / 축 구성 ----
+  function gearName(i) {
+    const n = teeth.length;
+    if (i === 0) return '모터';
+    if (i === n - 1) return '출력';
+    const s = Math.ceil(i / 2);
+    return i % 2 ? `${s}축 피동` : `${s}축 구동`;
+  }
+
+  // 축 목록: 각 축은 { driven, driver } 기어 인덱스 (같으면 단일 기어)
+  function shafts() {
+    const n = teeth.length;
+    const list = [{ driven: 0, driver: 0 }];
+    for (let i = 1; i < n - 1; i += 2) list.push({ driven: i, driver: i + 1 });
+    if (useIdler) list.push({ idler: true });
+    list.push({ driven: n - 1, driver: n - 1 });
+    return list;
+  }
+  const tOf = (s, which) => s.idler ? IDLER_T : teeth[s[which]];
+
+  // ---- UI ----
+  function buildControls() {
+    const box = $('controls');
+    box.innerHTML = '';
+    teeth.forEach((_, i) => {
+      const d = document.createElement('div');
+      d.className = 'gctl';
+      d.innerHTML = `<span class="name">${gearName(i)}</span>
+        <button data-i="${i}" data-d="-1">−</button>
+        <span class="t" id="t${i}"></span>
+        <button data-i="${i}" data-d="1">+</button>`;
+      box.appendChild(d);
+    });
+  }
+  $('controls').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (b) step(+b.dataset.i, +b.dataset.d);
+  });
+
+  function step(i, d) {
+    if (solved) return;
+    const k = TEETH.indexOf(teeth[i]);
+    teeth[i] = TEETH[(k + d + TEETH.length) % TEETH.length];
+    setMsg('');
+    update();
+  }
+
+  const fmtRpm = v => {
+    const a = Math.abs(v);
+    const s = a >= 100 ? a.toFixed(0) : a >= 10 ? a.toFixed(1) : a.toFixed(2);
+    return `${s} rpm ${v >= 0 ? '↻' : '↺'}`;
+  };
+
+  function update() {
+    teeth.forEach((t, i) => { $('t' + i).textContent = t + 'T'; });
+    $('idlerBtn').classList.toggle('on', useIdler);
+    $('inVal').textContent = fmtRpm(level.rpm);
+    $('tgtVal').textContent = fmtRpm(outRpm(level.sol, level.idler, level.rpm));
+    $('outVal').textContent = fmtRpm(outRpm(teeth, useIdler, level.rpm));
+    $('trqVal').textContent = outTorque(teeth, useIdler).toFixed(1) + ' N·m';
+  }
+
+  function setMsg(text, cls) {
+    const m = $('msg');
+    m.textContent = text;
+    m.className = cls || '';
+  }
+
+  $('idlerBtn').onclick = () => { if (!solved) { useIdler = !useIdler; setMsg(''); update(); } };
+  $('resetBtn').onclick = () => loadLevel(levelIdx);
+  $('checkBtn').onclick = () => {
+    if (solved) { loadLevel(levelIdx + 1); return; }
+    const want = outRpm(level.sol, level.idler, level.rpm);
+    const got = outRpm(teeth, useIdler, level.rpm);
+    if (Math.sign(want) !== Math.sign(got)) {
+      setMsg('✗ 회전 방향이 반대입니다', 'bad');
+    } else if (Math.abs(got - want) / Math.abs(want) > TOL) {
+      setMsg(`✗ 속도 오차 ${((got / want - 1) * 100).toFixed(1)}%`, 'bad');
+    } else {
+      solved = true;
+      setMsg('✓ 설계 승인! 다음 버튼을 누르세요', 'ok');
+      $('checkBtn').textContent = '다음 레벨 →';
+    }
+  };
+
+  // ---- 캔버스 클릭 ----
+  let hitAreas = [];
+  function canvasHit(e, dir) {
+    const r = cv.getBoundingClientRect();
+    const x = (e.clientX - r.left) * cv.width / r.width;
+    const y = (e.clientY - r.top) * cv.height / r.height;
+    // 작은 기어가 앞에 그려지므로 반지름이 작은 것부터 검사
+    const hits = hitAreas.filter(h => Math.hypot(x - h.x, y - h.y) <= h.r).sort((a, b) => a.r - b.r);
+    if (hits.length) step(hits[0].i, dir);
+  }
+  cv.addEventListener('click', e => canvasHit(e, e.shiftKey ? -1 : 1));
+  cv.addEventListener('contextmenu', e => { e.preventDefault(); canvasHit(e, -1); });
+
+  // ---- 렌더링 ----
+  const COLORS = ['#c9874a', '#8f9aa8', '#b6a35a', '#7d9cb5', '#a07ab0', '#6fae8c'];
+
+  function drawGear(x, y, T, m, angle, color, alpha) {
+    const rp = T * m / 2;          // 피치원 반지름
+    const ra = rp + m;             // 이끝원
+    const rf = rp - 1.25 * m;      // 이뿌리원
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    const step = 2 * Math.PI / T;
+    for (let k = 0; k < T; k++) {
+      const a = k * step;
+      // 사다리꼴 이: 이뿌리 → 이끝 → 이끝 → 이뿌리
+      const pts = [
+        [rf, a - step * 0.30],
+        [ra, a - step * 0.16],
+        [ra, a + step * 0.16],
+        [rf, a + step * 0.30],
+        [rf, a + step * 0.70],
+      ];
+      pts.forEach(([r, t], j) => {
+        const px = r * Math.cos(t), py = r * Math.sin(t);
+        (k === 0 && j === 0) ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      });
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0,0,0,.45)';
+    ctx.stroke();
+
+    // 림/스포크
+    ctx.globalAlpha = alpha * 0.35;
+    ctx.fillStyle = '#000';
+    if (rf > 22) {
+      const holes = T >= 30 ? 5 : 4;
+      for (let h = 0; h < holes; h++) {
+        const ha = h * 2 * Math.PI / holes;
+        ctx.beginPath();
+        ctx.arc(Math.cos(ha) * rf * 0.55, Math.sin(ha) * rf * 0.55, rf * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(4, rf * 0.18), 0, Math.PI * 2);
+    ctx.fillStyle = '#2a2f36';
+    ctx.fill();
+    // 키 홈 표시 (회전 방향이 보이도록)
+    ctx.fillStyle = '#eee';
+    ctx.fillRect(Math.max(4, rf * 0.18) - 3, -1.5, 3, 3);
+    ctx.restore();
+  }
+
+  function render(dt) {
+    const W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const sh = shafts();
+    // 축 간 거리(모듈 단위): (구동 잇수 + 다음 피동 잇수) / 2
+    const maxR = s => Math.max(tOf(s, 'driven'), tOf(s, 'driver')) / 2 + 1;
+    let span = maxR(sh[0]) + maxR(sh[sh.length - 1]);
+    for (let k = 0; k < sh.length - 1; k++) span += (tOf(sh[k], 'driver') + tOf(sh[k + 1], 'driven')) / 2;
+    const tallest = Math.max(...sh.map(maxR)) * 2;
+    const m = Math.min((W - 40) / span, (H - 70) / tallest, 9);
+
+    // 시각적 속도 제한 (가장 빠른 축이 초당 1.5회전 이하)
+    const rpms = [level.rpm];
+    for (let k = 1; k < sh.length; k++) rpms.push(-rpms[k - 1] * tOf(sh[k - 1], 'driver') / tOf(sh[k], 'driven'));
+    const fastest = Math.max(...rpms.map(Math.abs));
+    const visual = Math.min(1, 90 / fastest);
+    motorAngle += level.rpm / 60 * 2 * Math.PI * visual * dt;
+
+    // 각 축 각도: 맞물림 위상이 맞도록 체인으로 계산
+    const ang = [motorAngle];
+    for (let k = 1; k < sh.length; k++) {
+      const Td = tOf(sh[k - 1], 'driver'), Tn = tOf(sh[k], 'driven');
+      ang.push(-ang[k - 1] * Td / Tn + Math.PI + Math.PI / Tn);
+    }
+
+    // 위치
+    const cy = H / 2 + 6;
+    const xs = [20 + maxR(sh[0]) * m];
+    for (let k = 1; k < sh.length; k++)
+      xs.push(xs[k - 1] + (tOf(sh[k - 1], 'driver') + tOf(sh[k], 'driven')) / 2 * m);
+    const offset = (W - (xs[xs.length - 1] + maxR(sh[sh.length - 1]) * m) - 20) / 2;
+
+    // 프레임(하우징) 라인
+    ctx.strokeStyle = '#2c333c';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath();
+    ctx.moveTo(10, cy); ctx.lineTo(W - 10, cy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    hitAreas = [];
+    const drawList = [];
+    sh.forEach((s, k) => {
+      const x = xs[k] + offset;
+      if (s.idler) {
+        drawList.push({ x, T: IDLER_T, a: ang[k], color: '#5aa0e5', i: -1 });
+      } else if (s.driven === s.driver) {
+        drawList.push({ x, T: teeth[s.driven], a: ang[k], color: k === 0 ? '#e07a4a' : '#5cc27a', i: s.driven });
+      } else {
+        // 2단 기어: 큰 것을 뒤에, 작은 것을 앞에
+        const g1 = { x, T: teeth[s.driven], a: ang[k], color: COLORS[(k * 2) % COLORS.length], i: s.driven };
+        const g2 = { x, T: teeth[s.driver], a: ang[k], color: COLORS[(k * 2 + 1) % COLORS.length], i: s.driver };
+        const [big, small] = g1.T >= g2.T ? [g1, g2] : [g2, g1];
+        big.back = true;
+        drawList.push(big, small);
+      }
+      // 회전 속도 라벨
+      ctx.fillStyle = '#9aa4b1';
+      ctx.font = '12px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      const label = s.idler ? '아이들러' : k === 0 ? '모터' : k === sh.length - 1 ? '출력' : `${k}축`;
+      ctx.fillText(`${label} ${Math.abs(rpms[k]).toFixed(1)}rpm`, x, 18 + (k % 2) * 14);
+    });
+
+    // 뒤쪽(큰) 기어 먼저, 그다음 나머지
+    const order = [...drawList.filter(g => g.back), ...drawList.filter(g => !g.back)];
+    order.forEach(g => {
+      drawGear(g.x, cy, g.T, m, g.a, g.color, g.back ? 0.8 : 1);
+      if (g.i >= 0) hitAreas.push({ x: g.x, y: cy, r: (g.T / 2 + 1) * m, i: g.i });
+    });
+    drawList.forEach(g => {
+      if (g.i < 0) return;
+      ctx.fillStyle = 'rgba(0,0,0,.6)';
+      ctx.font = 'bold 11px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      const r = g.T * m / 2;
+      const ty = g.back ? cy + r - m * 2.2 : cy + Math.max(14, r * 0.55);
+      ctx.fillText(g.T + 'T', g.x, ty + 4);
+    });
+
+    if (solved) {
+      ctx.fillStyle = 'rgba(92,194,122,.15)';
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    render(dt);
+    requestAnimationFrame(loop);
+  }
+
+  loadLevel(0);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
